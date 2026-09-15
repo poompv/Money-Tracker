@@ -10,10 +10,11 @@ export function LoginForm() {
 
   useEffect(() => {
     // Supabase's password-recovery emails redirect here (Site URL) with the
-    // recovery tokens in the hash fragment; hand off to the actual page that
-    // lets the user set a new password, keeping the hash intact.
-    if (window.location.hash.includes("type=recovery")) {
-      router.replace(`/update-password${window.location.hash}`);
+    // recovery tokens (or an error, e.g. an expired/already-used link) in the
+    // hash fragment; hand off to the page that actually handles both cases.
+    const hash = window.location.hash;
+    if (hash.includes("type=recovery") || hash.includes("error=")) {
+      router.replace(`/update-password${hash}`);
     }
   }, [router]);
 

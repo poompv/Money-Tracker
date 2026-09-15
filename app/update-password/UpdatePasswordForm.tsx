@@ -17,29 +17,54 @@ export function UpdatePasswordForm() {
   useEffect(() => {
     const supabase = createClient();
 
-    // PKCE-style recovery links land with ?code=... — exchange it for a session.
-    const code = new URLSearchParams(window.location.search).get("code");
-    if (code) {
-      supabase.auth.exchangeCodeForSession(code).then(({ error }) => {
+    async function establishRecoverySession() {
+      // PKCE-style recovery links land with ?code=... — exchange it for a session.
+      const code = new URLSearchParams(window.location.search).get("code");
+      if (code) {
+        const { error } = await supabase.auth.exchangeCodeForSession(code);
         if (error) setLinkError("ลิงก์หมดอายุหรือถูกใช้ไปแล้ว กรุณาขอลิงก์ใหม่");
         else setReady(true);
-      });
-      return;
+        return;
+      }
+
+      // Hash-fragment (#access_token=...&refresh_token=...&type=recovery)
+      // links, parsed manually rather than relying on the client's built-in
+      // URL detection, since @supabase/ssr's browser client doesn't reliably
+      // do this the way the plain supabase-js client does.
+      const hashParams = new URLSearchParams(window.location.hash.slice(1));
+
+      const hashError = hashParams.get("error_description");
+      if (hashError) {
+        setLinkError(
+          hashParams.get("error_code") === "otp_expired"
+            ? "ลิงก์นี้หมดอายุหรือถูกใช้ไปแล้ว (ลิงก์ใช้ได้ครั้งเดียว) กรุณากลับไปกด Send Password Recovery ใหม่ และคลิกลิงก์ในอีเมลเพียงครั้งเดียว"
+            : decodeURIComponent(hashError.replace(/\+/g, " "))
+        );
+        return;
+      }
+
+      const accessToken = hashParams.get("access_token");
+      const refreshToken = hashParams.get("refresh_token");
+      if (accessToken && refreshToken) {
+        const { error } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        });
+        if (error) setLinkError("ลิงก์หมดอายุหรือถูกใช้ไปแล้ว กรุณาขอลิงก์ใหม่");
+        else setReady(true);
+        return;
+      }
+
+      // Fallback: maybe a session already exists (e.g. page was refreshed
+      // after the hash was already processed once).
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (session) setReady(true);
+      else setLinkError("ไม่พบลิงก์สำหรับตั้งรหัสผ่านใหม่ กรุณาขอลิงก์ใหม่อีกครั้ง");
     }
 
-    // Older hash-fragment (#access_token=...&type=recovery) links are parsed
-    // automatically by the browser client (detectSessionInUrl is on by default).
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY") setReady(true);
-    });
-
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) setReady(true);
-    });
-
-    return () => subscription.unsubscribe();
+    establishRecoverySession();
   }, []);
 
   async function handleSubmit(e: FormEvent) {
