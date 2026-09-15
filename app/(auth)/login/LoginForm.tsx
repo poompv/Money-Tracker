@@ -1,10 +1,21 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { signIn } from "@/lib/actions/auth";
 
 export function LoginForm() {
+  const router = useRouter();
   const [state, formAction, pending] = useActionState(signIn, undefined);
+
+  useEffect(() => {
+    // Supabase's password-recovery emails redirect here (Site URL) with the
+    // recovery tokens in the hash fragment; hand off to the actual page that
+    // lets the user set a new password, keeping the hash intact.
+    if (window.location.hash.includes("type=recovery")) {
+      router.replace(`/update-password${window.location.hash}`);
+    }
+  }, [router]);
 
   return (
     <form action={formAction} className="space-y-4">
